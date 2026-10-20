@@ -6,7 +6,7 @@ from plotly.subplots import make_subplots
 from streamlit_autorefresh import st_autorefresh
 import ccxt
 import json
-import google.generativeai as genai # Library AI Google Gemini
+from google import genai # Library baru Google GenAI
 
 st.set_page_config(page_title="KuCoin Auto Trading Bot", layout="wide")
 
@@ -51,28 +51,30 @@ if st.session_state.trade_history:
 
 mode_teks = "SIMULASI (Uang Palsu)" if paper_trading else "LIVE (Uang Asli)"
 st.title("📈 KuCoin: Full Auto-Trading Bot dengan AI")
-st.write(f"Status Bot: **{mode_teks}** | Otak AI: **Google Gemini** | Update ke-{count}.")
+st.write(f"Status Bot: **{mode_teks}** | Otak AI: **Google GenAI SDK** | Update ke-{count}.")
 
-# --- FUNGSI AI SENTIMEN (GOOGLE GEMINI REAL) ---
+# --- FUNGSI AI SENTIMEN (MENGGUNAKAN SDK GOOGLE GENAI TERBARU) ---
 def get_ai_sentiment(symbol, api_key_gemini):
     if not api_key_gemini:
         return {"status": "NEUTRAL", "reason": "API Key Gemini belum dimasukkan."}
     
     try:
-        genai.configure(api_key=api_key_gemini)
-        model = genai.GenerativeModel('gemini-1.5-flash') # Model yang cepat dan murah
+        # Inisialisasi klien menggunakan SDK terbaru google.genai
+        client = genai.Client(api_key=api_key_gemini)
         
         prompt = f"""
-        Kamu adalah analis kripto handal. Coba ingat atau perkirakan sentimen pasar saat ini untuk koin {symbol}.
-        Apakah secara umum fundamental dan beritanya BULLISH, BEARISH, atau NEUTRAL?
+        Kamu adalah analis kripto handal. Perkirakan sentimen pasar saat ini untuk koin {symbol}.
+        Apakah secara fundamental dan beritanya BULLISH, BEARISH, atau NEUTRAL?
         Berikan jawaban HANYA dalam format JSON persis seperti di bawah ini, tanpa teks tambahan:
         {{"status": "BULLISH", "reason": "Satu kalimat alasan singkat maksimal 15 kata."}}
         Pastikan key "status" hanya berisi salah satu dari: BULLISH, BEARISH, NEUTRAL.
         """
         
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+        )
         
-        # Bersihkan format JSON dari markdown jika ada (misal: ```json ... ```)
         teks_bersih = response.text.replace('```json', '').replace('```', '').strip()
         hasil_json = json.loads(teks_bersih)
         
@@ -182,7 +184,7 @@ def plot_full_chart(df, symbol, change_rate):
     fig.add_trace(go.Scatter(x=df['time'], y=df['RSI'], line=dict(color='purple')), row=3, col=1)
     fig.add_hline(y=60, line_dash="dot", line_color="green", row=3, col=1)
     fig.add_trace(go.Bar(x=df['time'], y=df['Histogram'], marker_color=['green' if v>=0 else 'red' for v in df['Histogram']]), row=4, col=1)
-    fig.update_layout(title=f"<b>{symbol}</b>", xaxis_rangeslider_visible=False, margin=dict(l=10,r=10,t=40,b=10), height=450, showlegend=False)
+    fig.update_layout(title=dict(text=f"<b>{symbol}</b>", font=dict(size=14)), xaxis_rangeslider_visible=False, margin=dict(l=10,r=10,t=40,b=10), height=450, showlegend=False)
     return fig
 
 with st.spinner("Menarik data pasar & AI sedang menganalisa sentimen..."):
@@ -226,19 +228,19 @@ if top_gainers:
                     del st.session_state.active_trades[symbol]
                 else: trade_status_msg = f"❌ {prefix}GAGAL JUAL {symbol}: {response}"
 
-        # LOGIKA BUY & CEK AI SENTIMEN (Google Gemini)
+        # LOGIKA BUY & CEK AI SENTIMEN (Google GenAI)
         elif status_color == "success":
             if enable_auto_trade and vol_breakout and (symbol not in st.session_state.bought_coins):
                 
                 ai_approved = True
                 if enable_ai_sentiment:
-                    sentimen = get_ai_sentiment(symbol, gemini_api_key) # Memanggil AI Sungguhan
+                    sentimen = get_ai_sentiment(symbol, gemini_api_key)
                     if sentimen["status"] == "BEARISH":
                         ai_approved = False
                         trade_status_msg = f"🚫 BATAL BELI: AI mendeteksi sentimen buruk ({sentimen['reason']})"
                 
                 if ai_approved:
-                    if not paper_trading and not api_key: trade_status_msg = "⚠️ API Key KuCoin belum diisi (Dibutuhkan untuk mode LIVE)!"
+                    if not paper_trading and not api_key: trade_status_msg = "⚠️ API Key KuCoin belum diisi!"
                     else:
                         success, response = execute_auto_buy(symbol, trade_amount_usdt, api_key, api_secret, api_passphrase, paper_trading)
                         if success:
@@ -253,7 +255,6 @@ if top_gainers:
         with cols[display_count % 3]:
             st.plotly_chart(plot_full_chart(df_chart, symbol, coin['changeRate']), use_container_width=True)
             
-            # Label sentimen AI
             if enable_ai_sentiment:
                 ai_res = get_ai_sentiment(symbol, gemini_api_key)
                 ai_color = "🔴" if ai_res["status"] == "BEARISH" else "🟢" if ai_res["status"] == "BULLISH" else "⚪"
